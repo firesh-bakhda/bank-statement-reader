@@ -32,6 +32,9 @@ jobs:
         runs-on: ubuntu-latest
         container:
             image: python:3.10-alpine
+        defaults:
+            run:
+                shell: sh
 
         steps:
             - name: Checkout
@@ -39,27 +42,29 @@ jobs:
 
             - name: Resolve release metadata
               id: meta
-              shell: /bin/bash
               env:
                   INPUT_TAG: ${{ inputs.tag }}
                   INPUT_RELEASE_NAME: ${{ inputs.release_name }}
                   INPUT_BASE_VERSION: ${{ inputs.base_version }}
                   RUN_NUMBER: ${{ github.run_number }}
               run: |
-                  if [[ -z "${INPUT_TAG// }" ]]; then
-                    if [[ ! "$INPUT_BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  TRIMMED_TAG="$(echo "$INPUT_TAG" | xargs)"
+                  TRIMMED_RELEASE_NAME="$(echo "$INPUT_RELEASE_NAME" | xargs)"
+
+                  if [ -z "$TRIMMED_TAG" ]; then
+                    if ! echo "$INPUT_BASE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
                       echo "base_version must be MAJOR.MINOR.PATCH, for example 1.4.0" >&2
                       exit 1
                     fi
                     resolved_tag="${INPUT_BASE_VERSION}+build.${RUN_NUMBER}"
                   else
-                    resolved_tag="$(echo "$INPUT_TAG" | xargs)"
+                    resolved_tag="$TRIMMED_TAG"
                   fi
 
-                  if [[ -z "${INPUT_RELEASE_NAME// }" ]]; then
+                  if [ -z "$TRIMMED_RELEASE_NAME" ]; then
                     resolved_release_name="Release ${resolved_tag}"
                   else
-                    resolved_release_name="$(echo "$INPUT_RELEASE_NAME" | xargs)"
+                    resolved_release_name="$TRIMMED_RELEASE_NAME"
                   fi
 
                   echo "tag=${resolved_tag}" >> "$GITHUB_OUTPUT"
@@ -68,7 +73,6 @@ jobs:
                   echo "Resolved release name: ${resolved_release_name}"
 
             - name: Install system dependencies
-              shell: bash
               run: |
                   apk add --no-cache \
                     bash \
@@ -81,31 +85,28 @@ jobs:
                     zip
 
             - name: Install uv and sync dependencies
-              shell: bash
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install uv
                   uv sync
 
             - name: Build with project script
-              shell: bash
               run: |
                   chmod +x build_nuitka.sh
-                  ./build_nuitka.sh
+                  bash ./build_nuitka.sh
 
             - name: Create release zip from build artifacts
-              shell: bash
               run: |
                   mkdir -p dist
-                  mapfile -t artifacts < <(find build/nuitka -maxdepth 1 -type f \( -name "*.exe" -o -perm -111 \))
-                  if [[ ${#artifacts[@]} -eq 0 ]]; then
+                  find build/nuitka -maxdepth 1 -type f \( -name "*.exe" -o -perm -111 \) > dist/artifacts.txt
+                  if [ ! -s dist/artifacts.txt ]; then
                     echo "No build artifacts found in build/nuitka" >&2
                     ls -la build/nuitka || true
                     exit 1
                   fi
 
                   zip_path="dist/bank-statement-reader-${{ steps.meta.outputs.tag }}.zip"
-                  zip -j "$zip_path" "${artifacts[@]}"
+                  zip -j "$zip_path" $(cat dist/artifacts.txt)
                   echo "Created zip: $zip_path"
 
             - name: Publish GitHub release
