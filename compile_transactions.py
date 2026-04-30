@@ -9,6 +9,7 @@ import json
 import re
 import threading
 import tkinter as tk
+import webbrowser
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -581,6 +582,7 @@ class App(ctk.CTk):
         self.visual_year_buttons: list[ctk.CTkButton] = []
         self.chart_canvases: list[FigureCanvasTkAgg] = []
         self._category_wrap_after_id: str | None = None
+        self.touch_n_go_qr_path: Path | None = None
 
         self.status_var = tk.StringVar(value="Ready")
         self.folder_var = tk.StringVar(value=f"Folder: {self.current_folder.resolve()}")
@@ -650,36 +652,47 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=16, weight="bold"),
         ).pack(anchor="w", padx=12, pady=(12, 10))
 
-        self.dashboard_button = ctk.CTkButton(menu, text="Dashboard", command=self.show_dashboard)
-        self.dashboard_button.pack(fill="x", padx=12, pady=6)
-        self.transactions_button = ctk.CTkButton(
-            menu, text="Transactions", command=self.show_transactions
-        )
-        self.transactions_button.pack(fill="x", padx=12, pady=6)
+        self.choose_folder_button = ctk.CTkButton(menu, text="Choose Folder", command=self.choose_folder)
+        self.choose_folder_button.pack(fill="x", padx=12, pady=6)
         self.visual_dashboard_button = ctk.CTkButton(
             menu, text="Visual Dashboard", command=self.show_visual_dashboard
         )
         self.visual_dashboard_button.pack(fill="x", padx=12, pady=6)
+        self.dashboard_button = ctk.CTkButton(menu, text="Data Dashboard", command=self.show_dashboard)
+        self.dashboard_button.pack(fill="x", padx=12, pady=6)
+        self.transactions_button = ctk.CTkButton(
+            menu, text="Transaction View", command=self.show_transactions
+        )
+        self.transactions_button.pack(fill="x", padx=12, pady=6)
+
+        ctk.CTkFrame(menu, fg_color="transparent").pack(fill="both", expand=True)
+
+        ctk.CTkLabel(
+            menu,
+            text="Admin:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
         self.category_config_button = ctk.CTkButton(
             menu,
             text="Category Config",
             command=self.show_category_config,
         )
         self.category_config_button.pack(fill="x", padx=12, pady=6)
-        self.choose_folder_button = ctk.CTkButton(menu, text="Choose Folder", command=self.choose_folder)
-        self.choose_folder_button.pack(fill="x", padx=12, pady=6)
-        self.refresh_button = ctk.CTkButton(menu, text="Refresh", command=self.refresh_data)
-        self.refresh_button.pack(fill="x", padx=12, pady=6)
         self.export_button = ctk.CTkButton(menu, text="Export CSV", command=self.export_csv)
         self.export_button.pack(fill="x", padx=12, pady=6)
+
+        self.about_button = ctk.CTkButton(menu, text="About", command=self.show_about)
+        self.about_button.pack(fill="x", padx=12, pady=(10, 12))
+
         self.menu_buttons = [
+            self.choose_folder_button,
+            self.visual_dashboard_button,
             self.dashboard_button,
             self.transactions_button,
-            self.visual_dashboard_button,
             self.category_config_button,
-            self.choose_folder_button,
-            self.refresh_button,
             self.export_button,
+            self.about_button,
         ]
 
     def _build_content_area(self, parent: ctk.CTkFrame) -> None:
@@ -692,14 +705,17 @@ class App(ctk.CTk):
         self.transactions_frame = ctk.CTkFrame(self.content)
         self.visual_frame = ctk.CTkScrollableFrame(self.content)
         self.category_config_frame = ctk.CTkFrame(self.content)
+        self.about_frame = ctk.CTkScrollableFrame(self.content)
 
         self.dashboard_frame.grid(row=0, column=0, sticky="nsew")
         self.transactions_frame.grid(row=0, column=0, sticky="nsew")
         self.visual_frame.grid(row=0, column=0, sticky="nsew")
         self.category_config_frame.grid(row=0, column=0, sticky="nsew")
+        self.about_frame.grid(row=0, column=0, sticky="nsew")
         self.transactions_frame.grid_remove()
         self.visual_frame.grid_remove()
         self.category_config_frame.grid_remove()
+        self.about_frame.grid_remove()
 
         self.dashboard_filter_bar = ctk.CTkFrame(self.dashboard_frame)
         self.dashboard_filter_bar.pack(fill="x", padx=10, pady=(10, 4))
@@ -743,6 +759,108 @@ class App(ctk.CTk):
 
         self._build_transactions_table()
         self._build_category_config_editor()
+        self._build_about_panel()
+
+    def _build_about_panel(self) -> None:
+        card = ctk.CTkFrame(self.about_frame, corner_radius=12)
+        card.pack(fill="x", padx=10, pady=10)
+
+        ctk.CTkLabel(
+            card,
+            text="About",
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(14, 6))
+
+        ctk.CTkLabel(
+            card,
+            text="Author: Firesh Bakhda",
+            font=ctk.CTkFont(size=14),
+        ).pack(anchor="w", padx=14, pady=3)
+
+        ctk.CTkLabel(
+            card,
+            text="Email: firesh@gmail.com",
+            font=ctk.CTkFont(size=14),
+        ).pack(anchor="w", padx=14, pady=3)
+
+        ctk.CTkLabel(
+            card,
+            text="Donate to:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(anchor="w", padx=14, pady=(14, 6))
+
+        donate_row = ctk.CTkFrame(card, fg_color="transparent")
+        donate_row.pack(fill="x", padx=14, pady=(0, 14))
+
+        ctk.CTkButton(
+            donate_row,
+            text="PayPal",
+            command=self.open_paypal_donate,
+            fg_color=("#1d4ed8", "#1d4ed8"),
+            hover_color=("#1e40af", "#1e40af"),
+            width=120,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            donate_row,
+            text="Touch 'n Go QR",
+            command=self.open_touch_n_go_qr,
+            fg_color=("#0f766e", "#0f766e"),
+            hover_color=("#115e59", "#115e59"),
+            width=140,
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            card,
+            text="PayPal URL: https://paypal.me/fbakhda",
+            font=ctk.CTkFont(size=12),
+            text_color=("#475569", "#cbd5e1"),
+        ).pack(anchor="w", padx=14, pady=(0, 14))
+
+    def open_paypal_donate(self) -> None:
+        webbrowser.open("https://paypal.me/fbakhda", new=2)
+        self.set_status("Opened PayPal donation page.")
+
+    def _find_touch_n_go_qr_file(self) -> Path | None:
+        if self.touch_n_go_qr_path and self.touch_n_go_qr_path.exists():
+            return self.touch_n_go_qr_path
+
+        candidates = [
+            Path("touch_n_go_qr.jpeg"),
+            Path("touch_n_go_qr.jpg"),
+            Path("tng_qr.jpeg"),
+            Path("tng_qr.jpg"),
+            Path("qr.jpeg"),
+            Path("qr.jpg"),
+        ]
+
+        for path in candidates:
+            if path.exists():
+                self.touch_n_go_qr_path = path
+                return path
+
+        selected = filedialog.askopenfilename(
+            title="Select Touch 'n Go QR image",
+            filetypes=[("JPEG image", "*.jpg *.jpeg"), ("All files", "*.*")],
+        )
+        if not selected:
+            return None
+
+        chosen_path = Path(selected)
+        self.touch_n_go_qr_path = chosen_path
+        return chosen_path
+
+    def open_touch_n_go_qr(self) -> None:
+        qr_path = self._find_touch_n_go_qr_file()
+        if qr_path is None:
+            self.set_status("Touch 'n Go QR image not selected.")
+            return
+
+        try:
+            webbrowser.open(qr_path.resolve().as_uri(), new=2)
+            self.set_status(f"Opened Touch 'n Go QR: {qr_path.resolve()}")
+        except Exception as exc:
+            self.set_status(f"Unable to open Touch 'n Go QR image: {exc}")
 
     def _build_category_config_editor(self) -> None:
         self.category_config_frame.grid_rowconfigure(1, weight=1)
@@ -1758,6 +1876,7 @@ class App(ctk.CTk):
         self.transactions_frame.grid_remove()
         self.visual_frame.grid_remove()
         self.category_config_frame.grid_remove()
+        self.about_frame.grid_remove()
         self.set_status(
             f"Dashboard view - {self.selected_year} ({len(self.filtered_transactions)} transactions)"
         )
@@ -1767,6 +1886,7 @@ class App(ctk.CTk):
         self.dashboard_frame.grid_remove()
         self.visual_frame.grid_remove()
         self.category_config_frame.grid_remove()
+        self.about_frame.grid_remove()
         self.set_status(
             f"Transactions view - {self.selected_year} ({len(self.filtered_transactions)} rows)"
         )
@@ -1776,6 +1896,7 @@ class App(ctk.CTk):
         self.dashboard_frame.grid_remove()
         self.transactions_frame.grid_remove()
         self.category_config_frame.grid_remove()
+        self.about_frame.grid_remove()
         self.set_status(
             f"Visual dashboard - {self.selected_year} ({len(self.filtered_transactions)} transactions)"
         )
@@ -1785,7 +1906,16 @@ class App(ctk.CTk):
         self.dashboard_frame.grid_remove()
         self.transactions_frame.grid_remove()
         self.visual_frame.grid_remove()
+        self.about_frame.grid_remove()
         self.set_status("Category config editor")
+
+    def show_about(self) -> None:
+        self.about_frame.grid()
+        self.dashboard_frame.grid_remove()
+        self.transactions_frame.grid_remove()
+        self.visual_frame.grid_remove()
+        self.category_config_frame.grid_remove()
+        self.set_status("About")
 
     def export_csv(self) -> None:
         if self.is_loading:
