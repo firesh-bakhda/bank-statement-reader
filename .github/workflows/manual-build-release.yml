@@ -82,7 +82,8 @@ jobs:
                     linux-headers \
                     openssl-dev \
                     patchelf \
-                    zip
+                    zip \
+                    python3-tkinter
 
             - name: Install uv and sync dependencies
               run: |
