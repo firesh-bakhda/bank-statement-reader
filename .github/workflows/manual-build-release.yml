@@ -39,7 +39,7 @@ jobs:
 
             - name: Resolve release metadata
               id: meta
-              shell: bash
+              shell: /bin/bash
               env:
                   INPUT_TAG: ${{ inputs.tag }}
                   INPUT_RELEASE_NAME: ${{ inputs.release_name }}
