@@ -1,0 +1,118 @@
+name: Manual Build And Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Release tag (optional). Leave empty to auto-generate strict SemVer tag."
+                required: false
+                default: ""
+                type: string
+            release_name:
+                description: "Release name (optional). Leave empty to auto-generate from tag."
+                required: false
+                default: ""
+                type: string
+            base_version:
+                description: "Base version for auto tag as MAJOR.MINOR.PATCH (example: 0.1.0)"
+                required: false
+                default: "0.1.0"
+                type: string
+            prerelease:
+                description: "Mark as prerelease"
+                required: false
+                default: false
+                type: boolean
+
+permissions:
+    contents: write
+
+jobs:
+    build-and-release:
+        runs-on: ubuntu-latest
+        container:
+            image: python:3.10-alpine
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Resolve release metadata
+              id: meta
+              shell: bash
+              env:
+                  INPUT_TAG: ${{ inputs.tag }}
+                  INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+                  INPUT_BASE_VERSION: ${{ inputs.base_version }}
+                  RUN_NUMBER: ${{ github.run_number }}
+              run: |
+                  if [[ -z "${INPUT_TAG// }" ]]; then
+                    if [[ ! "$INPUT_BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "base_version must be MAJOR.MINOR.PATCH, for example 1.4.0" >&2
+                      exit 1
+                    fi
+                    resolved_tag="${INPUT_BASE_VERSION}+build.${RUN_NUMBER}"
+                  else
+                    resolved_tag="$(echo "$INPUT_TAG" | xargs)"
+                  fi
+
+                  if [[ -z "${INPUT_RELEASE_NAME// }" ]]; then
+                    resolved_release_name="Release ${resolved_tag}"
+                  else
+                    resolved_release_name="$(echo "$INPUT_RELEASE_NAME" | xargs)"
+                  fi
+
+                  echo "tag=${resolved_tag}" >> "$GITHUB_OUTPUT"
+                  echo "release_name=${resolved_release_name}" >> "$GITHUB_OUTPUT"
+                  echo "Resolved tag: ${resolved_tag}"
+                  echo "Resolved release name: ${resolved_release_name}"
+
+            - name: Install system dependencies
+              shell: bash
+              run: |
+                  apk add --no-cache \
+                    bash \
+                    build-base \
+                    ccache \
+                    libffi-dev \
+                    linux-headers \
+                    openssl-dev \
+                    patchelf \
+                    zip
+
+            - name: Install uv and sync dependencies
+              shell: bash
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install uv
+                  uv sync
+
+            - name: Build with project script
+              shell: bash
+              run: |
+                  chmod +x build_nuitka.sh
+                  ./build_nuitka.sh
+
+            - name: Create release zip from build artifacts
+              shell: bash
+              run: |
+                  mkdir -p dist
+                  mapfile -t artifacts < <(find build/nuitka -maxdepth 1 -type f \( -name "*.exe" -o -perm -111 \))
+                  if [[ ${#artifacts[@]} -eq 0 ]]; then
+                    echo "No build artifacts found in build/nuitka" >&2
+                    ls -la build/nuitka || true
+                    exit 1
+                  fi
+
+                  zip_path="dist/bank-statement-reader-${{ steps.meta.outputs.tag }}.zip"
+                  zip -j "$zip_path" "${artifacts[@]}"
+                  echo "Created zip: $zip_path"
+
+            - name: Publish GitHub release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ steps.meta.outputs.tag }}
+                  name: ${{ steps.meta.outputs.release_name }}
+                  prerelease: ${{ inputs.prerelease }}
+                  generate_release_notes: true
+                  files: dist/*.zip
